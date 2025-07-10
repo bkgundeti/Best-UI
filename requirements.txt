@@ -1,11 +1,109 @@
 Flask
 flask-cors
+Flask-Session
 pymongo
 python-dotenv
 openai
-python-docx
+pytesseract
 SpeechRecognition
 pydub
 werkzeug
 pandas
 numpy
+python-docx
+Pillow
+audioop-lts
+standard-aifc
+standard-chunk
+
+# Langchain and AI
+langchain
+langchain-community
+langchain-core
+langchain-openai
+langchain-text-splitters
+langsmith
+
+# Jupyter and IPython (for development)
+jupyter
+ipykernel
+ipython
+ipywidgets
+widgetsnbextension
+
+# Azure and OpenAI integration
+azure-core
+azure-identity
+azure-storage-blob
+
+# Web and data processing
+httpx
+httpx-sse
+requests
+requests-toolbelt
+beautifulsoup4
+soupsieve
+lxml
+html5lib
+json5
+jsonschema
+pypdf
+pyyaml
+
+# Audio/Text/Media tools
+gTTS
+pyttsx3
+pywhatkit
+pyjokes
+wikipedia
+playsound
+
+# Typing and structure
+typing_extensions
+typing-inspection
+pydantic
+pydantic-core
+pydantic-settings
+dataclasses-json
+annotated-types
+msgspec
+
+# Dev and system tools
+gunicorn
+psutil
+platformdirs
+python-json-logger
+
+# Browser automation
+selenium
+webdriver-manager
+cloudscraper
+
+# NLP, search, and embeddings
+faiss-cpu
+tiktoken
+regex
+orjson
+
+# Database connectors
+mysql-connector-python
+PyMySQL
+psycopg2
+
+# GUI automation (optional)
+PyAutoGUI
+pygetwindow
+PyMsgBox
+PyRect
+PyScreeze
+pytweening
+MouseInfo
+
+# Time, dates, calendar
+tkcalendar
+pytz
+tzdata
+tzlocal
+
+# SMS/Call integration
+twilio
