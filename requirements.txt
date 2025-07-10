@@ -56,7 +56,6 @@ pyttsx3
 pywhatkit
 pyjokes
 wikipedia
-playsound
 
 # Typing and structure
 typing_extensions
