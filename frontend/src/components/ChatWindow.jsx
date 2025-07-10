@@ -10,7 +10,7 @@ const ChatWindow = ({ user, setUser }) => {
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    axios.get(`http://localhost:5000/history/${user}`).then((res) => {
+    axios.get(`/history/${user}`).then((res) => {
       setChats(res.data);
     });
   }, [user]);
@@ -20,11 +20,14 @@ const ChatWindow = ({ user, setUser }) => {
     const newChat = { username: user, message };
     setChats([...chats, newChat]);
 
-    const res = await axios.post("http://localhost:5000/chat", {
+    const res = await axios.post("/chat", {
       username: user,
       message,
     });
-    setChats((prev) => [...prev, { username: "Agent", message: res.data.response }]);
+    setChats((prev) => [
+      ...prev,
+      { username: "Agent", message: res.data.response },
+    ]);
     setMessage("");
   };
 
@@ -32,14 +35,15 @@ const ChatWindow = ({ user, setUser }) => {
     if (!file) return;
     const formData = new FormData();
     formData.append("file", file);
-    await axios.post("http://localhost:5000/upload", formData);
+    await axios.post("/upload", formData);
     alert("📁 File uploaded!");
     setFile(null);
   };
 
   const handleLogout = () => setUser(null);
+
   const handleClear = async () => {
-    await axios.post("http://localhost:5000/clear_chat", { username: user });
+    await axios.post("/clear_chat", { username: user });
     setChats([]);
   };
 
@@ -55,7 +59,9 @@ const ChatWindow = ({ user, setUser }) => {
         {chats.map((chat, index) => (
           <div
             key={index}
-            className={`flex ${chat.username === user ? "justify-end" : "justify-start"} mb-2`}
+            className={`flex ${
+              chat.username === user ? "justify-end" : "justify-start"
+            } mb-2`}
           >
             <div
               className={`px-4 py-2 rounded-xl max-w-xs ${
