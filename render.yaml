@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: final-agent-ui
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main_flask.py
+    env: python
+    pythonVersion: 3.10.13
