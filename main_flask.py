@@ -1,6 +1,6 @@
-# ✅ main_flask.py (final version with .env-based config)
+# main_flask.py
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from pymongo import MongoClient
 import os
@@ -16,7 +16,7 @@ from agents.report_agent import ReportAgent
 # ✅ Load .env variables
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 CORS(app)
 
 # ✅ MongoDB Configuration
@@ -111,6 +111,15 @@ def clear_chat():
     username = request.get_json().get("username")
     chats_col.delete_many({"username": username})
     return jsonify({"status": "cleared"})
+
+# ✅ Serve Frontend React App
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path):
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, "index.html")
 
 # ✅ Run Server
 if __name__ == "__main__":
