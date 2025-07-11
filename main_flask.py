@@ -1,3 +1,5 @@
+# main_flask.py
+
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -19,9 +21,9 @@ CORS(app)
 
 # ✅ MongoDB Configuration
 mongo_uri = os.getenv("MONGO_URI")
-user_db_name = os.getenv("USER_DB_NAME")
-users_collection_name = os.getenv("USERS_COLLECTION_NAME")
-chats_collection_name = os.getenv("CHATS_COLLECTION_NAME")
+user_db_name = os.getenv("USER_DB_NAME")               # AI_model_selector
+users_collection_name = os.getenv("USERS_COLLECTION_NAME")  # users
+chats_collection_name = os.getenv("CHATS_COLLECTION_NAME")  # chats
 
 mongo_client = MongoClient(mongo_uri)
 user_db = mongo_client[user_db_name]
@@ -38,7 +40,7 @@ gpt_client = AzureOpenAI(
 assistant_id = os.getenv("AZURE_OPENAI_ASSISTANT_ID")
 
 # ✅ Login API
-@app.route("/api/login", methods=["POST"])
+@app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
     username = data.get("username")
@@ -53,7 +55,7 @@ def login():
     return jsonify({"status": "success"})
 
 # ✅ Chat API
-@app.route("/api/chat", methods=["POST"])
+@app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
     username = data.get("username")
@@ -83,7 +85,7 @@ def chat():
     return jsonify({"response": response})
 
 # ✅ Chat History API
-@app.route("/api/history/<username>", methods=["GET"])
+@app.route("/history/<username>", methods=["GET"])
 def history(username):
     chats = chats_col.find({"username": username})
     return jsonify([
@@ -92,7 +94,7 @@ def history(username):
     ])
 
 # ✅ File Upload API
-@app.route("/api/upload", methods=["POST"])
+@app.route("/upload", methods=["POST"])
 def upload():
     file = request.files["file"]
     if file:
@@ -104,7 +106,7 @@ def upload():
     return jsonify({"status": "fail"}), 400
 
 # ✅ Clear Chat API
-@app.route("/api/clear_chat", methods=["POST"])
+@app.route("/clear_chat", methods=["POST"])
 def clear_chat():
     username = request.get_json().get("username")
     chats_col.delete_many({"username": username})
@@ -119,5 +121,6 @@ def serve_react(path):
     else:
         return send_from_directory(app.static_folder, "index.html")
 
+# ✅ Run Server
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
