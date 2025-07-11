@@ -34,6 +34,11 @@ gpt_client = AzureOpenAI(
 )
 assistant_id = os.getenv("AZURE_OPENAI_ASSISTANT_ID")
 
+# ✅ Initialize ChatAgent globally
+chat_agent = ChatAgent(gpt_client)
+
+# ✅ Track users currently processing
+user_processing_lock = {}
 
 # ✅ Sign Up API
 @app.route("/signup", methods=["POST"])
@@ -61,7 +66,6 @@ def signup():
 
     return jsonify({"success": True, "message": "Account created"}), 201
 
-
 # ✅ Login API
 @app.route("/login", methods=["POST"])
 def login():
@@ -81,7 +85,6 @@ def login():
 
     return jsonify({"success": True, "message": "Login successful"}), 200
 
-
 # ✅ Chat API
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -92,12 +95,42 @@ def chat():
     if not username or not message:
         return jsonify({"response": "Missing username or message"}), 400
 
-    chat_agent = ChatAgent(gpt_client)
-    chat_response = chat_agent.process_web_input(message)
+    # ❗ Prevent multiple requests from same user
+    if user_processing_lock.get(username, False):
+        return jsonify({"response": "Please wait, your previous request is still being processed."}), 429
 
-    if not chat_response or not chat_response.get("proceed"):
-        response = chat_response.get("message", "Could not process your input.")
-    else:
+    user_processing_lock[username] = True  # 🔒 Lock user
+
+    try:
+        # Step 1: If a model is already selected, handle follow-up
+        if chat_agent.selected_model_info:
+            followup_response = chat_agent.handle_follow_up(message)
+            chats_col.insert_one({
+                "username": username,
+                "message": message,
+                "response": followup_response,
+                "timestamp": datetime.utcnow()
+            })
+            return jsonify({"response": followup_response}), 200
+
+        # Step 2: Analyze input using ChatAgent
+        chat_response = chat_agent.process_web_input(message)
+
+        # ✅ If user just said "Hi" or other polite message (not AI task)
+        if not chat_response or not chat_response.get("proceed"):
+            response = chat_response.get("message", "Could not process your input.")
+
+            # Save polite or invalid message to history too
+            chats_col.insert_one({
+                "username": username,
+                "message": message,
+                "response": response,
+                "timestamp": datetime.utcnow()
+            })
+
+            return jsonify({"response": response}), 200
+
+        # Step 3: Proceed with model recommendation
         analyzed_input = chat_response["message"]
         recommender = RecommenderAgent(gpt_client)
         recommended = recommender.recommend_models(analyzed_input)
@@ -112,15 +145,31 @@ def chat():
         reporter = ReportAgent(gpt_client)
         response = reporter.generate_report(analyzed_input, recommended, pricing_table)
 
-    chats_col.insert_one({
-        "username": username,
-        "message": message,
-        "response": response,
-        "timestamp": datetime.utcnow()
-    })
+        # Step 4: Save selected model for future follow-ups
+        try:
+            import re
+            model_name_match = re.search(r"Model Name\s*:\s*(.+)", response)
+            if model_name_match:
+                final_model = model_name_match.group(1).strip()
+                dataset = recommender._fetch_model_dataset()
+                matched_model = next((m for m in dataset if m.get("Model_name") == final_model), None)
+                if matched_model:
+                    chat_agent.set_selected_model(matched_model)
+        except Exception as e:
+            print("Error storing selected model info:", e)
 
-    return jsonify({"response": response}), 200
+        # Step 5: Save chat to DB
+        chats_col.insert_one({
+            "username": username,
+            "message": message,
+            "response": response,
+            "timestamp": datetime.utcnow()
+        })
 
+        return jsonify({"response": response}), 200
+
+    finally:
+        user_processing_lock[username] = False  # 🔓 Unlock user after processing
 
 # ✅ Chat History API
 @app.route("/history/<username>", methods=["GET"])
@@ -133,7 +182,6 @@ def history(username):
         {"username": username, "message": c["message"]} if i % 2 == 0 else {"username": "Agent", "message": c["response"]}
         for i, c in enumerate(chats)
     ])
-
 
 # ✅ File Upload API
 @app.route("/upload", methods=["POST"])
@@ -150,7 +198,6 @@ def upload():
 
     return jsonify({"status": "success", "message": f"{filename} uploaded successfully"}), 200
 
-
 # ✅ Clear Chat API
 @app.route("/clear_chat", methods=["POST"])
 def clear_chat():
@@ -161,10 +208,10 @@ def clear_chat():
         return jsonify({"status": "fail", "message": "Missing username"}), 400
 
     chats_col.delete_many({"username": username})
+    chat_agent.selected_model_info = None
     return jsonify({"status": "cleared"}), 200
 
-
-# ✅ Serve Frontend (React)
+# ✅ Serve React Frontend
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
@@ -173,7 +220,6 @@ def serve_react(path):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, "index.html")
 
-
-# ✅ Start Server
+# ✅ Run Flask Server
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

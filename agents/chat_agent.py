@@ -13,7 +13,14 @@ logger = get_logger("chat_agent", "logs/chat_agent.log")
 class ChatAgent:
     def __init__(self, gpt_client):
         self.client = gpt_client
+        self.selected_model_info = None
+        self.request_alternative = False
+        self.processing = False
 
+    def set_selected_model(self, model_dict):
+        self.selected_model_info = model_dict
+
+    # ✅ File reading methods
     def _read_text_file(self, file_path):
         try:
             with open(file_path, 'r') as f:
@@ -93,108 +100,66 @@ class ChatAgent:
             logger.warning(f"Unsupported file format: {ext}")
             return ""
 
-    def _collect_user_input(self):
-        print("\nEnter your requirement (You can enter text or file path. Type 'exit' to quit):")
-        lines = []
-        while True:
-            try:
-                line = input("> ").strip()
-            except Exception as e:
-                logger.error(f"Input error: {e}")
-                return ""
-
-            if line.lower() in ["exit", "quit"]:
-                return "EXIT_COMMAND"
-
-            if line:
-                lines.append(line)
-            elif lines:
-                break
-
-        return "\n".join(lines).strip()
-
-    def run_chat_loop(self):
-        collected_input = ""
-
-        while not collected_input:
-            raw_input = self._collect_user_input()
-
-            if raw_input == "EXIT_COMMAND":
-                return "EXIT_COMMAND"
-
-            for segment in raw_input.splitlines():
-                segment = segment.strip()
-                if os.path.exists(segment):
-                    collected_input += "\n" + self._handle_file_input(segment)
-                else:
-                    collected_input += "\n" + segment
-
-            if not collected_input.strip():
-                print("No valid input detected. Please try again.")
-
-        try:
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an AI assistant that helps users ONLY with AI model recommendations.\n"
-                        "If the user input is about using AI for tasks (like summarization, chatbot, detection, etc.), say:\n"
-                        "'Thank you, I will now recommend an AI model.' and end with ##PROCEED##.\n\n"
-                        "If the input is NOT about AI model recommendation (e.g. greetings, life advice, how to study), then:\n"
-                        "- Politely respond with a DIFFERENT natural-sounding sentence depending on the input\n"
-                        "- Example replies: 'That doesn't sound like a task for an AI model.' or 'Please describe the AI use-case you want help with.'\n"
-                        "- Then end with this exact tag: ##HOLD##"
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": collected_input.strip()
-                }
-            ]
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages
-            )
-            result = response.choices[0].message.content.strip()
-            logger.info("Analysis result:\n" + result)
-
-            if "##PROCEED##" in result:
-                cleaned = result.replace("##PROCEED##", "").strip()
-                return cleaned
-            else:
-                cleaned = result.replace("##HOLD##", "").strip()
-                print(cleaned)
-                return None
-
-        except Exception as e:
-            logger.error(f"GPT error: {repr(e)}")
-            print(f"GPT failed to analyze input. Error: {repr(e)}")
-            return None
-
     def process_web_input(self, user_input):
+        if self.processing:
+            return {
+                "proceed": False,
+                "message": "Please wait, your previous request is still being processed.",
+                "mode": "wait"
+            }
+
+        self.processing = True
+
         try:
             if not user_input or not user_input.strip():
                 return {
                     "proceed": False,
-                    "message": "Input is empty. Please provide a requirement."
+                    "message": "Input is empty. Please provide a valid question or requirement.",
+                    "mode": "empty"
                 }
 
+            lowered = user_input.lower().strip()
+
+            # ✅ Handle greetings politely
+            if lowered in ["hi", "hello", "hey", "hola", "namaste"]:
+                self.processing = False
+                return {
+                    "proceed": False,
+                    "message": "Hello! I'm your AI model assistant. How can I help you today? You can ask for tasks like summarization, translation, image generation, audio generation, and more.",
+                    "mode": "greeting"
+                }
+
+            # ✅ Handle alternate model request
+            if "other than this" in lowered or "another model" in lowered:
+                self.request_alternative = True
+                self.processing = False
+                return {
+                    "proceed": True,
+                    "message": "Got it. You want another model suggestion. Let me process it for you.",
+                    "mode": "alternative"
+                }
+
+            # ✅ Handle follow-up on selected model
+            if any(keyword in lowered for keyword in ["price", "speed", "developer", "cloud", "accuracy", "region", "provider"]):
+                if self.selected_model_info:
+                    answer = self.handle_follow_up(user_input)
+                    self.processing = False
+                    return {
+                        "proceed": False,
+                        "message": answer,
+                        "mode": "follow_up"
+                    }
+
+            # ✅ Use GPT to classify if it’s a model recommendation task
             messages = [
                 {
                     "role": "system",
                     "content": (
-                        "You are an intelligent assistant focused ONLY on recommending AI models.\n"
-                        "If the user input is about using AI for tasks like summarization, text generation, image recognition, etc., "
-                        "respond with: 'Great, I will now suggest the most suitable AI models for your case.' and end with ##PROCEED##.\n\n"
-                        "If it's NOT a valid model use-case (e.g. hello, exam question, how are you), reply naturally and POLITELY "
-                        "with varied wording depending on the input.\n"
-                        "Do NOT repeat the same sentence. Be helpful but end by saying: 'Please ask something model-related so I can assist.' and then add ##HOLD##."
+                        "You are an expert AI assistant that helps users decide which AI model to use for tasks like text summarization, image generation, speech-to-text, audio generation, etc. "
+                        "If the input seems general (e.g. hi, hello), greet back. If the task is unclear, ask them to rephrase."
                     )
                 },
-                {
-                    "role": "user",
-                    "content": user_input.strip()
-                }
+                {"role": "user", "content": user_input.strip()}
             ]
 
             response = self.client.chat.completions.create(
@@ -205,20 +170,55 @@ class ChatAgent:
             result = response.choices[0].message.content.strip()
             logger.info("Web input analysis result:\n" + result)
 
-            if "##PROCEED##" in result:
+            if any(keyword in result.lower() for keyword in ["model", "ai", "summarization", "translation", "audio", "image", "generation", "recommendation"]):
                 return {
                     "proceed": True,
-                    "message": result.replace("##PROCEED##", "").strip()
+                    "message": result,
+                    "mode": "new_request"
                 }
             else:
                 return {
                     "proceed": False,
-                    "message": result.replace("##HOLD##", "").strip()
+                    "message": result,
+                    "mode": "irrelevant"
                 }
 
         except Exception as e:
             logger.error(f"Web GPT error: {repr(e)}")
             return {
                 "proceed": False,
-                "message": "Something went wrong while analyzing your input."
+                "message": "Something went wrong while analyzing your input. Please try again later.",
+                "mode": "error"
             }
+
+        finally:
+            self.processing = False
+
+    def handle_follow_up(self, user_query):
+        if not self.selected_model_info:
+            return "No model is currently selected. Please request a model recommendation first."
+
+        model_json = json.dumps(self.selected_model_info, indent=2)
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an assistant who ONLY gives accurate, detailed, and helpful information about the AI model shown below.\n"
+                    "Always provide details like provider, pricing, speed, accuracy, region. If any info is missing, infer it politely.\n\n"
+                    f"Selected Model:\n{model_json}"
+                )
+            },
+            {"role": "user", "content": user_query}
+        ]
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages
+            )
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"Follow-up GPT error: {e}")
+            return "Sorry, I couldn't answer your follow-up question. Please try again."
