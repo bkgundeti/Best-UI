@@ -3,6 +3,9 @@ import axios from "axios";
 import Sidebar from "./Sidebar";
 import { Paperclip, Send } from "lucide-react";
 
+// ✅ Utility function to introduce delay
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const ChatWindow = ({ user, setUser }) => {
   const [message, setMessage] = useState("");
   const [chats, setChats] = useState([]);
@@ -10,22 +13,34 @@ const ChatWindow = ({ user, setUser }) => {
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    axios.get(`/history/${user}`).then((res) => {
-      setChats(res.data);
-    });
+    const fetchHistory = async () => {
+      await delay(500); // Small delay before fetching chat history
+      try {
+        const res = await axios.get(`/history/${user}`);
+        setChats(res.data);
+      } catch (err) {
+        console.error("Error fetching chat history:", err);
+      }
+    };
+    fetchHistory();
   }, [user]);
 
   const handleSend = async () => {
     if (!message.trim()) return;
+
     const newChat = { username: user, message };
     setChats([...chats, newChat]);
 
     try {
+      await delay(500); // Delay before sending to backend
       const res = await axios.post(`/chat`, {
         username: user,
         message,
       });
-      setChats((prev) => [...prev, { username: "Agent", message: res.data.response }]);
+      setChats((prev) => [
+        ...prev,
+        { username: "Agent", message: res.data.response },
+      ]);
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -39,6 +54,7 @@ const ChatWindow = ({ user, setUser }) => {
     formData.append("file", file);
 
     try {
+      await delay(500); // Delay before uploading
       await axios.post(`/upload`, formData);
       alert("📁 File uploaded!");
       setFile(null);
@@ -50,8 +66,13 @@ const ChatWindow = ({ user, setUser }) => {
   const handleLogout = () => setUser(null);
 
   const handleClear = async () => {
-    await axios.post(`/clear_chat`, { username: user });
-    setChats([]);
+    try {
+      await delay(500); // Delay before clearing chat
+      await axios.post(`/clear_chat`, { username: user });
+      setChats([]);
+    } catch (error) {
+      console.error("Error clearing chat:", error);
+    }
   };
 
   useEffect(() => {
@@ -66,7 +87,9 @@ const ChatWindow = ({ user, setUser }) => {
         {chats.map((chat, index) => (
           <div
             key={index}
-            className={`flex ${chat.username === user ? "justify-end" : "justify-start"} mb-2`}
+            className={`flex ${
+              chat.username === user ? "justify-end" : "justify-start"
+            } mb-2`}
           >
             <div
               className={`px-4 py-2 rounded-xl max-w-xs ${
