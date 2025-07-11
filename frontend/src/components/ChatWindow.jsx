@@ -10,7 +10,7 @@ const ChatWindow = ({ user, setUser }) => {
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    axios.get(`http://localhost:5000/history/${user}`).then((res) => {
+    axios.get(`/history/${user}`).then((res) => {
       setChats(res.data);
     });
   }, [user]);
@@ -20,11 +20,16 @@ const ChatWindow = ({ user, setUser }) => {
     const newChat = { username: user, message };
     setChats([...chats, newChat]);
 
-    const res = await axios.post("http://localhost:5000/chat", {
-      username: user,
-      message,
-    });
-    setChats((prev) => [...prev, { username: "Agent", message: res.data.response }]);
+    try {
+      const res = await axios.post(`/chat`, {
+        username: user,
+        message,
+      });
+      setChats((prev) => [...prev, { username: "Agent", message: res.data.response }]);
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
+
     setMessage("");
   };
 
@@ -32,14 +37,20 @@ const ChatWindow = ({ user, setUser }) => {
     if (!file) return;
     const formData = new FormData();
     formData.append("file", file);
-    await axios.post("http://localhost:5000/upload", formData);
-    alert("📁 File uploaded!");
-    setFile(null);
+
+    try {
+      await axios.post(`/upload`, formData);
+      alert("📁 File uploaded!");
+      setFile(null);
+    } catch (error) {
+      alert("Upload failed!");
+    }
   };
 
   const handleLogout = () => setUser(null);
+
   const handleClear = async () => {
-    await axios.post("http://localhost:5000/clear_chat", { username: user });
+    await axios.post(`/clear_chat`, { username: user });
     setChats([]);
   };
 
