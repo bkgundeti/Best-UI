@@ -84,7 +84,7 @@ const ChatWindow = ({ user, setUser }) => {
       e.preventDefault();
       handleSend();
     }
-    // On mobile: default behavior = Enter adds new line
+    // On mobile: default behavior (enter = new line)
   };
 
   const handleUpload = (file) => {
@@ -111,11 +111,11 @@ const ChatWindow = ({ user, setUser }) => {
   }, [chats, loading]);
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-purple-950 via-black to-purple-900 text-white">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-black via-[#111111] to-[#1a1a1a] text-white">
       {/* ✅ Watermark */}
       {chats.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-          <h1 className="text-4xl md:text-5xl font-bold text-white opacity-20 text-center">
+          <h1 className="text-4xl md:text-5xl font-bold text-gray-200 opacity-30 drop-shadow text-center">
             Model Selector AI Agent
           </h1>
         </div>
@@ -131,7 +131,7 @@ const ChatWindow = ({ user, setUser }) => {
         </button>
       </div>
 
-      {/* ✅ Chat Scrollable Area */}
+      {/* ✅ Chat Messages */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2">
         {chats.map((chat, index) => {
           const isUser = chat.username === user;
@@ -160,7 +160,7 @@ const ChatWindow = ({ user, setUser }) => {
         <div ref={scrollRef} />
       </div>
 
-      {/* ✅ Footer / Input */}
+      {/* ✅ Footer */}
       <div className="p-3 border-t border-gray-700 bg-gray-900 sticky bottom-0 z-10">
         {uploadedFile && (
           <div className="text-sm text-green-400 mb-1">
@@ -198,13 +198,6 @@ const ChatWindow = ({ user, setUser }) => {
             <Send size={18} />
           </button>
         </div>
-
-        {/* 🔤 Keyboard Hint */}
-        <p className="text-xs text-gray-400 mt-1">
-          {isMobile
-            ? "Enter for new line • Tap Send to submit"
-            : "Press Enter to send • Shift+Enter for new line"}
-        </p>
       </div>
     </div>
   );

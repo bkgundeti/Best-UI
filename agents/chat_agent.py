@@ -16,6 +16,7 @@ class ChatAgent:
         self.selected_model_info = None
         self.request_alternative = False
         self.processing = False
+        self.last_task_type = None  # Track last task like 'image_generation', 'text_generation', etc.
 
     def set_selected_model(self, model_dict):
         self.selected_model_info = model_dict
@@ -100,6 +101,20 @@ class ChatAgent:
             logger.warning(f"Unsupported file format: {ext}")
             return ""
 
+    def _extract_task_type(self, user_input):
+        task_keywords = {
+            "image_generation": ["image", "generate image", "picture", "visual", "dalle"],
+            "text_generation": ["text", "generate text", "content", "paragraph"],
+            "translation": ["translate", "translation", "language"],
+            "summarization": ["summary", "summarize"],
+            "audio_generation": ["speech", "voice", "generate audio", "tts"]
+        }
+        lowered = user_input.lower()
+        for task, keywords in task_keywords.items():
+            if any(k in lowered for k in keywords):
+                return task
+        return "general"
+
     def process_web_input(self, user_input):
         if self.processing:
             return {
@@ -120,37 +135,36 @@ class ChatAgent:
 
             lowered = user_input.lower().strip()
 
-            # ✅ Handle greetings politely
             if lowered in ["hi", "hello", "hey", "hola", "namaste"]:
-                self.processing = False
                 return {
                     "proceed": False,
                     "message": "Hello! I'm your AI model assistant. How can I help you today? You can ask for tasks like summarization, translation, image generation, audio generation, and more.",
                     "mode": "greeting"
                 }
 
-            # ✅ Handle alternate model request
             if "other than this" in lowered or "another model" in lowered:
                 self.request_alternative = True
-                self.processing = False
+                if not self.last_task_type:
+                    return {
+                        "proceed": False,
+                        "message": "Please specify the task again (e.g., image generation, summarization) to get another model.",
+                        "mode": "missing_context"
+                    }
                 return {
                     "proceed": True,
-                    "message": "Got it. You want another model suggestion. Let me process it for you.",
+                    "message": f"User requested another model for {self.last_task_type.replace('_', ' ')}.",
                     "mode": "alternative"
                 }
 
-            # ✅ Handle follow-up on selected model
             if any(keyword in lowered for keyword in ["price", "speed", "developer", "cloud", "accuracy", "region", "provider"]):
                 if self.selected_model_info:
                     answer = self.handle_follow_up(user_input)
-                    self.processing = False
                     return {
                         "proceed": False,
                         "message": answer,
                         "mode": "follow_up"
                     }
 
-            # ✅ Use GPT to classify if it’s a model recommendation task
             messages = [
                 {
                     "role": "system",
@@ -171,6 +185,7 @@ class ChatAgent:
             logger.info("Web input analysis result:\n" + result)
 
             if any(keyword in result.lower() for keyword in ["model", "ai", "summarization", "translation", "audio", "image", "generation", "recommendation"]):
+                self.last_task_type = self._extract_task_type(user_input)
                 return {
                     "proceed": True,
                     "message": result,
