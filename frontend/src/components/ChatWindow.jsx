@@ -47,7 +47,6 @@ const ChatWindow = ({ user, setUser }) => {
     setUploadedFile(null);
     setLoading(true);
 
-    // Show "Analyzing..." message
     setChats((prev) => [...prev, { username: "System", message: "Analyzing..." }]);
 
     try {
@@ -64,7 +63,6 @@ const ChatWindow = ({ user, setUser }) => {
 
       const formattedResponse = res.data.response.trim();
 
-      // Replace "Analyzing..." with final response
       setChats((prev) => {
         const updated = [...prev];
         const idx = updated.findIndex(
@@ -112,67 +110,64 @@ const ChatWindow = ({ user, setUser }) => {
   }, [chats, loading]);
 
   return (
-    <div className="relative flex flex-col h-screen bg-gradient-to-br from-purple-950 via-black to-purple-900">
-      {/* ✅ White Watermark (Visible) */}
+    <div className="flex flex-col min-h-screen bg-gradient-to-br from-purple-950 via-black to-purple-900 text-white overflow-hidden">
+      {/* ✅ Watermark */}
       {chats.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center z-0 pointer-events-none">
-          <h1 className="text-6xl font-bold text-white opacity-30 select-none">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+          <h1 className="text-4xl md:text-5xl font-bold text-white opacity-20 text-center">
             Model Selector AI Agent
           </h1>
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex justify-between items-center px-6 py-3 text-white text-sm border-b border-gray-700 z-10 bg-transparent">
-        <span className="cursor-pointer hover:underline" onClick={handleClear}>
+      {/* ✅ Header */}
+      <div className="flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 z-10">
+        <button onClick={handleClear} className="hover:underline">
           Clear Chat
-        </span>
-        <span className="cursor-pointer hover:underline" onClick={handleLogout}>
+        </button>
+        <button onClick={handleLogout} className="hover:underline">
           Logout
-        </span>
+        </button>
       </div>
 
-      {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 text-white relative z-10">
-        <div className="relative z-10">
-          {chats.map((chat, index) => {
-            const isUser = chat.username === user;
-            const isAgent = chat.username === "Agent";
-            const isSystem = chat.username === "System";
+      {/* ✅ Chat Area */}
+      <div className="flex-1 overflow-y-auto px-3 py-4 relative z-10">
+        {chats.map((chat, index) => {
+          const isUser = chat.username === user;
+          const isAgent = chat.username === "Agent";
+          const isSystem = chat.username === "System";
 
-            return (
+          return (
+            <div
+              key={index}
+              className={`flex ${isUser ? "justify-end" : "justify-start"} mb-2`}
+            >
               <div
-                key={index}
-                className={`flex ${isUser ? "justify-end" : "justify-start"} mb-3`}
+                className={`max-w-[85%] px-4 py-2 whitespace-pre-wrap break-words ${
+                  isUser
+                    ? "bg-purple-600 rounded-xl rounded-br-sm"
+                    : isAgent
+                    ? "bg-gray-700 rounded-xl rounded-bl-sm"
+                    : "text-sm italic text-gray-400"
+                }`}
               >
-                <div
-                  className={`max-w-[85%] px-4 py-2 whitespace-pre-wrap ${
-                    isUser
-                      ? "bg-purple-600 rounded-xl rounded-br-sm"
-                      : isAgent
-                      ? "bg-gray-700 rounded-xl rounded-bl-sm"
-                      : "text-sm italic text-gray-400"
-                  }`}
-                >
-                  {chat.message}
-                </div>
+                {chat.message}
               </div>
-            );
-          })}
-          <div ref={scrollRef}></div>
-        </div>
+            </div>
+          );
+        })}
+        <div ref={scrollRef}></div>
       </div>
 
-      {/* Footer */}
-      <div className="p-3 bg-gray-900 border-t border-gray-700 z-10">
+      {/* ✅ Footer / Input */}
+      <div className="p-3 border-t border-gray-700 bg-gray-900">
         {uploadedFile && (
-          <div className="text-sm text-green-400 mb-2">
+          <div className="text-sm text-green-400 mb-1">
             📁 Selected: {uploadedFile.name}
           </div>
         )}
-
         <div className="flex gap-2 items-end">
-          <label className="cursor-pointer text-white">
+          <label className="cursor-pointer">
             <Paperclip />
             <input
               type="file"
@@ -186,13 +181,13 @@ const ChatWindow = ({ user, setUser }) => {
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyPress}
             placeholder="Type your message..."
-            rows={Math.min(5, message.split("\n").length)}
-            className="flex-1 px-3 py-2 rounded-xl bg-gray-800 text-white resize-none overflow-hidden max-h-[200px] focus:outline-none"
+            rows={1}
+            className="flex-1 px-3 py-2 rounded-xl bg-gray-800 text-white resize-none overflow-hidden max-h-[150px] focus:outline-none"
           />
 
           <button
             onClick={handleSend}
-            className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-xl text-white transition"
+            className="bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-xl text-white transition"
           >
             <Send size={18} />
           </button>
