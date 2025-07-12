@@ -9,7 +9,7 @@ langchain-core
 langchain-openai
 langchain-text-splitters
 langsmith
-
+PyPDF2
 pytesseract
 SpeechRecognition
 pydub

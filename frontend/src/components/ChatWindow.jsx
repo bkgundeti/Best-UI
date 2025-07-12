@@ -14,7 +14,6 @@ const ChatWindow = ({ user, setUser }) => {
 
   useEffect(() => {
     if (initialized.current) return;
-
     const storedUser = localStorage.getItem("user");
     if (!user && storedUser) setUser(storedUser);
 
@@ -28,7 +27,6 @@ const ChatWindow = ({ user, setUser }) => {
     };
 
     if (storedUser) fetchHistory();
-
     initialized.current = true;
   }, []);
 
@@ -36,13 +34,12 @@ const ChatWindow = ({ user, setUser }) => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chats]);
 
-  useEffect(() => {
-    const handleResize = () => {
-      scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const resetTextareaHeight = () => {
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+    }
+  };
 
   const handleSend = async () => {
     if (!message.trim() && !uploadedFile) return;
@@ -55,6 +52,7 @@ const ChatWindow = ({ user, setUser }) => {
 
     setMessage("");
     setUploadedFile(null);
+    resetTextareaHeight();
     setLoading(true);
 
     setChats((prev) => [...prev, { username: "System", message: "Analyzing..." }]);
@@ -75,9 +73,11 @@ const ChatWindow = ({ user, setUser }) => {
 
       setChats((prev) => {
         const updated = [...prev];
-        const idx = updated.findIndex(chat => chat.username === "System" && chat.message === "Analyzing...");
-        if (idx !== -1) {
-          updated[idx] = { username: "Agent", message: formattedResponse };
+        const index = updated.findIndex(
+          (chat) => chat.username === "System" && chat.message === "Analyzing..."
+        );
+        if (index !== -1) {
+          updated[index] = { username: "Agent", message: formattedResponse };
         } else {
           updated.push({ username: "Agent", message: formattedResponse });
         }
@@ -85,7 +85,10 @@ const ChatWindow = ({ user, setUser }) => {
       });
     } catch (err) {
       console.error("Send failed:", err);
-      setChats((prev) => [...prev, { username: "Agent", message: "⚠️ Something went wrong." }]);
+      setChats((prev) => [
+        ...prev,
+        { username: "Agent", message: "⚠️ Something went wrong." },
+      ]);
     }
 
     setLoading(false);
@@ -126,24 +129,24 @@ const ChatWindow = ({ user, setUser }) => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-[#0f0f0f] via-[#1a0033] to-[#2a0055] text-white overflow-hidden">
-      
-      {/* Watermark */}
+    <div className="flex flex-col h-screen bg-gradient-to-br from-[#0f0f0f] via-[#1a0033] to-[#2a0055] text-white overflow-hidden relative">
+
+      {/* Light Watermark */}
       {chats.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-          <h1 className="text-4xl md:text-5xl font-bold text-white opacity-100 text-center drop-shadow-lg">
+          <h1 className="text-5xl font-bold text-white/30 text-center">
             Model Selector AI Agent
           </h1>
         </div>
       )}
 
       {/* Sticky Header */}
-      <div className="sticky top-0 z-10 flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 bg-gray-900">
+      <div className="sticky top-0 z-20 flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 bg-gray-950">
         <button onClick={handleClear} className="hover:underline">Clear Chat</button>
         <button onClick={handleLogout} className="hover:underline">Logout</button>
       </div>
 
-      {/* Chat Scrollable Area */}
+      {/* Chat Window */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {chats.map((chat, index) => {
           const isUser = chat.username === user;

@@ -6,128 +6,7 @@ import pandas as pd
 import pytesseract
 import speech_recognition as sr
 from PIL import Image
-from agents.logger import get_logger
-
-logger = get_logger("chat_agent", "logs/chat_agent.log")
-
-class ChatAgent:
-    def __init__(self, gpt_client):
-        self.client = gpt_client
-        self.selected_model_info = None
-        self.request_alternative = False
-        self.processing = False
-        self.last_task_type = None
-        self.chat_history = []
-
-    def set_selected_model(self, model_dict):
-        self.selected_model_info = model_dict
-
-    def _read_text_file(self, file_path):
-        try:
-            with open(file_path, 'r') as f:
-                return f.read()
-        except Exception as e:
-            logger.error(f"Error reading text file: {e}")
-            return ""
-
-    def _read_docx_file(self, file_path):
-        try:
-            doc = docx.Document(file_path)
-            return "\n".join([para.text for para in doc.paragraphs])
-        except Exception as e:
-            logger.error(f"Error reading DOCX: {e}")
-            return ""
-
-    def _read_csv_file(self, file_path):
-        try:
-            with open(file_path, 'r', encoding="utf-8") as f:
-                reader = csv.reader(f)
-                return "\n".join([", ".join(row) for row in reader])
-        except Exception as e:
-            logger.error(f"Error reading CSV: {e}")
-            return ""
-
-    def _read_xlsx_file(self, file_path):
-        try:
-            df = pd.read_excel(file_path)
-            return df.to_string(index=False)
-        except Exception as e:
-            logger.error(f"Error reading XLSX: {e}")
-            return ""
-
-    def _read_json_file(self, file_path):
-        try:
-            with open(file_path, 'r') as f:
-                return json.dumps(json.load(f), indent=2)
-        except Exception as e:
-            logger.error(f"Error reading JSON: {e}")
-            return ""
-
-    def _read_image_file(self, file_path):
-        try:
-            img = Image.open(file_path)
-            return pytesseract.image_to_string(img)
-        except Exception as e:
-            logger.error(f"Error reading image: {e}")
-            return ""
-
-    def _read_audio_file(self, file_path):
-        recognizer = sr.Recognizer()
-        try:
-            with sr.AudioFile(file_path) as source:
-                audio_data = recognizer.record(source)
-                return recognizer.recognize_google(audio_data)
-        except Exception as e:
-            logger.error(f"Error reading audio: {e}")
-            return ""
-
-    def _handle_file_input(self, file_path):
-        ext = os.path.splitext(file_path)[-1].lower()
-        if ext == '.txt':
-            return self._read_text_file(file_path)
-        elif ext == '.docx':
-            return self._read_docx_file(file_path)
-        elif ext == '.csv':
-            return self._read_csv_file(file_path)
-        elif ext == '.xlsx':
-            return self._read_xlsx_file(file_path)
-        elif ext == '.json':
-            return self._read_json_file(file_path)
-        elif ext in ['.png', '.jpg', '.jpeg']:
-            return self._read_image_file(file_path)
-        elif ext in ['.mp3', '.wav']:
-            return self._read_audio_file(file_path)
-        else:
-            logger.warning(f"Unsupported file format: {ext}")
-            return ""
-
-    def _extract_task_type(self, user_input):
-        task_keywords = {
-            "image_generation": ["image", "generate image", "picture", "visual", "dalle"],
-            "text_generation": ["text", "generate text", "content", "paragraph"],
-            "translation": ["translate", "translation", "language"],
-            "summarization": ["summary", "summarize"],
-            "audio_generation": ["speech", "voice", "generate audio", "tts"]
-        }
-        lowered = user_input.lower()
-        for task, keywords in task_keywords.items():
-            if any(k in lowered for k in keywords):
-                return task
-        return "general"
-
-    def _append_to_history(self, role, content):
-        self.chat_history.append({"role": role, "content": content})
-        if len(self.chat_history) > 8:
-            self.chat_history.pop(0)
-
-    import os
-import json
-import docx
-import csv
-import pandas as pd
-import pytesseract
-import speech_recognition as sr
-from PIL import Image
+import PyPDF2
 from agents.logger import get_logger
 
 logger = get_logger("chat_agent", "logs/chat_agent.log")
@@ -137,79 +16,123 @@ class ChatAgent:
     def __init__(self, gpt_client):
         self.client = gpt_client
         self.selected_model_info = None
-        self.request_alternative = False
-        self.processing = False
-        self.last_task_type = None
-        self.chat_history = []
+        self.last_user_task = None
 
-    def set_selected_model(self, model_dict):
-        self.selected_model_info = model_dict
+    def set_selected_model(self, model_info):
+        self.selected_model_info = model_info
 
-    def _read_text_file(self, file_path):
+    def set_last_user_task(self, task):
+        self.last_user_task = task
+
+    def handle_follow_up(self, user_input):
+        """Respond to follow-up question about previously recommended model."""
+        if not self.selected_model_info or not self.last_user_task:
+            return "No model has been selected yet or original task is missing."
+
+        system_prompt = (
+            "You are an AI assistant that previously recommended a model to the user for a specific task.\n"
+            f"User Task: {self.last_user_task}\n\n"
+            f"Recommended Model:\n{json.dumps(self.selected_model_info, indent=2)}\n\n"
+            "Now the user is asking a follow-up question. Respond strictly based on the model above.\n"
+            "- If the user asks about pricing (e.g. cost per image), extract the relevant part from the model pricing.\n"
+            "- If the user asks about availability or region (e.g. India), use the 'Region' field.\n"
+            "- Be specific, concise, and informative. Do not say you can't help.\n"
+            "- Do not repeat all model details again.\n"
+            "User follow-up:\n"
+            f"{user_input.strip()}"
+        )
+
         try:
-            with open(file_path, 'r') as f:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input.strip()}
+            ]
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Follow-up error: {e}")
+            return "Sorry, I couldn’t answer your follow-up right now."
+
+    # ===== File Readers =====
+    def _read_text_file(self, path):
+        try:
+            with open(path, 'r', encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
-            logger.error(f"Error reading text file: {e}")
+            logger.error(f"Text read error: {e}")
             return ""
 
-    def _read_docx_file(self, file_path):
+    def _read_docx_file(self, path):
         try:
-            doc = docx.Document(file_path)
+            doc = docx.Document(path)
             return "\n".join([para.text for para in doc.paragraphs])
         except Exception as e:
-            logger.error(f"Error reading DOCX: {e}")
+            logger.error(f"DOCX read error: {e}")
             return ""
 
-    def _read_csv_file(self, file_path):
+    def _read_pdf_file(self, path):
         try:
-            with open(file_path, ' encoding="utf-8') as f:
+            with open(path, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        except Exception as e:
+            logger.error(f"PDF read error: {e}")
+            return ""
+
+    def _read_csv_file(self, path):
+        try:
+            with open(path, 'r', encoding="utf-8") as f:
                 reader = csv.reader(f)
                 return "\n".join([", ".join(row) for row in reader])
         except Exception as e:
-            logger.error(f"Error reading CSV: {e}")
+            logger.error(f"CSV read error: {e}")
             return ""
 
-    def _read_xlsx_file(self, file_path):
+    def _read_xlsx_file(self, path):
         try:
-            df = pd.read_excel(file_path)
+            df = pd.read_excel(path)
             return df.to_string(index=False)
         except Exception as e:
-            logger.error(f"Error reading XLSX: {e}")
+            logger.error(f"XLSX read error: {e}")
             return ""
 
-    def _read_json_file(self, file_path):
+    def _read_json_file(self, path):
         try:
-            with open(file_path, 'r') as f:
+            with open(path, 'r') as f:
                 return json.dumps(json.load(f), indent=2)
         except Exception as e:
-            logger.error(f"Error reading JSON: {e}")
+            logger.error(f"JSON read error: {e}")
             return ""
 
-    def _read_image_file(self, file_path):
+    def _read_image_file(self, path):
         try:
-            img = Image.open(file_path)
+            img = Image.open(path)
             return pytesseract.image_to_string(img)
         except Exception as e:
-            logger.error(f"Error reading image: {e}")
+            logger.error(f"Image OCR error: {e}")
             return ""
 
-    def _read_audio_file(self, file_path):
+    def _read_audio_file(self, path):
         recognizer = sr.Recognizer()
         try:
-            with sr.AudioFile(file_path) as source:
+            with sr.AudioFile(path) as source:
                 audio_data = recognizer.record(source)
                 return recognizer.recognize_google(audio_data)
         except Exception as e:
-            logger.error(f"Error reading audio: {e}")
+            logger.error(f"Audio read error: {e}")
             return ""
 
-    def _handle_file_input(self, file_path):
+    def _read_file_content(self, file_path):
         ext = os.path.splitext(file_path)[-1].lower()
         if ext == '.txt':
             return self._read_text_file(file_path)
         elif ext == '.docx':
             return self._read_docx_file(file_path)
+        elif ext == '.pdf':
+            return self._read_pdf_file(file_path)
         elif ext == '.csv':
             return self._read_csv_file(file_path)
         elif ext == '.xlsx':
@@ -218,157 +141,88 @@ class ChatAgent:
             return self._read_json_file(file_path)
         elif ext in ['.png', '.jpg', '.jpeg']:
             return self._read_image_file(file_path)
-        elif ext in ['.mp3', '.wav']:
+        elif ext in ['.wav', '.mp3']:
             return self._read_audio_file(file_path)
         else:
-            logger.warning(f"Unsupported file format: {ext}")
+            logger.warning(f"Unsupported file type: {ext}")
             return ""
 
-    def _extract_task_type(self, user_input):
-        task_keywords = {
-            "image_generation": ["image", "generate image", "picture", "visual", "dalle"],
-            "text_generation": ["text", "generate text", "content", "paragraph"],
-            "translation": ["translate", "translation", "language"],
-            "summarization": ["summary", "summarize"],
-            "audio_generation": ["speech", "voice", "generate audio", "tts"]
-        }
-        lowered = user_input.lower()
-        for task, keywords in task_keywords.items():
-            if any(k in lowered for k in keywords):
-                return task
-        return "general"
-
-    def _append_to_history(self, role, content):
-        self.chat_history.append({"role": role, "content": content})
-        if len(self.chat_history) > 8:
-            self.chat_history.pop(0)
-
+    # ===== Main Input Processor =====
     def process_web_input(self, user_input):
-        if self.processing:
-            return {
-                "proceed": False,
-                "message": "Please wait, your previous request is still being processed.",
-                "mode": "wait"
-            }
-
-        self.processing = True
-
         try:
             if not user_input or not user_input.strip():
                 return {
                     "proceed": False,
-                    "message": "Input is empty. Please provide a valid question or requirement.",
-                    "mode": "empty"
+                    "message": "Input is empty. Please provide a requirement."
                 }
 
-            lowered = user_input.lower().strip()
+            # ✅ Detect if it's a follow-up question (by keywords)
+            if self.selected_model_info and self.last_user_task:
+                followup_keywords = [
+                    "price", "cost", "token", "speed", "accuracy", "available",
+                    "region", "country", "image", "input", "output", "how much", "is it"
+                ]
+                lower_msg = user_input.lower()
+                if any(kw in lower_msg for kw in followup_keywords):
+                    followup = self.handle_follow_up(user_input)
+                    return {
+                        "proceed": True,
+                        "message": followup
+                    }
 
-            if lowered in ["hi", "hello", "hey", "hola", "namaste"]:
+            # Collect full content (text + files)
+            collected = ""
+            for line in user_input.strip().splitlines():
+                line = line.strip()
+                if os.path.exists(line):
+                    content = self._read_file_content(line)
+                    collected += f"\n{content}"
+                else:
+                    collected += f"\n{line}"
+
+            if not collected.strip():
                 return {
                     "proceed": False,
-                    "message": "Hello! I'm your AI assistant. Tell me what task you need help with—text, image, audio, summarization, or translation.",
-                    "mode": "greeting"
+                    "message": "No valid input found in text or files."
                 }
 
-            if "other than this" in lowered or "another model" in lowered:
-                self.request_alternative = True
-                if not self.last_task_type:
-                    return {
-                        "proceed": False,
-                        "message": "Please mention the task again (like 'generate image') so I can suggest another model.",
-                        "mode": "missing_context"
-                    }
-                return {
-                    "proceed": True,
-                    "message": f"Okay! I’ll find an alternative model for your task: {self.last_task_type.replace('_', ' ')}.",
-                    "mode": "alternative"
-                }
-
-            if any(keyword in lowered for keyword in ["price", "speed", "developer", "cloud", "accuracy", "region", "why"]):
-                if self.selected_model_info:
-                    answer = self.handle_follow_up(user_input)
-                    self._append_to_history("user", user_input)
-                    self._append_to_history("assistant", answer)
-                    return {
-                        "proceed": False,
-                        "message": answer,
-                        "mode": "follow_up"
-                    }
-
-            task_type = self._extract_task_type(user_input)
-            self.last_task_type = task_type
-
+            # Ask GPT if it's a valid AI task
             messages = [
                 {
                     "role": "system",
                     "content": (
-                        f"You are a helpful AI assistant that recommends the best AI model for user tasks like text generation, image generation, audio processing, translation, or summarization.\n"
-                        f"If the user is asking about '{task_type.replace('_', ' ')}', suggest suitable AI models (e.g., GPT-4, Claude, DALL·E 3, Stable Diffusion, etc.) and explain why.\n"
-                        f"Your goal is to explain your reasoning simply. Never repeat model names or prices unnecessarily. Be conversational and clear."
+                        "You are an intelligent assistant focused ONLY on recommending AI models.\n"
+                        "If the user input is about using AI for tasks like summarization, generation, image creation, speech transcription, etc., "
+                        "respond with: 'Great, I will now suggest the most suitable AI models for your case.' and end with ##PROCEED##.\n\n"
+                        "If it's not valid for model recommendation (e.g. greetings, jokes), reply politely and end with ##HOLD##."
                     )
-                }
+                },
+                {"role": "user", "content": collected.strip()}
             ]
-
-            messages.extend(self.chat_history[-6:])
-            messages.append({"role": "user", "content": user_input.strip()})
 
             response = self.client.chat.completions.create(
                 model="gpt-4o",
-                messages=messages,
-                temperature=0.4,
-                max_tokens=350
+                messages=messages
             )
 
             result = response.choices[0].message.content.strip()
             logger.info("Web input analysis result:\n" + result)
 
-            self._append_to_history("user", user_input.strip())
-            self._append_to_history("assistant", result)
-
-            return {
-                "proceed": True,
-                "message": result,
-                "mode": "new_request"
-            }
+            if "##PROCEED##" in result:
+                self.set_last_user_task(user_input.strip())  # Save original task
+                return {
+                    "proceed": True,
+                    "message": result.replace("##PROCEED##", "").strip()
+                }
+            else:
+                return {
+                    "proceed": False,
+                    "message": result.replace("##HOLD##", "").strip()
+                }
 
         except Exception as e:
             logger.error(f"Web GPT error: {repr(e)}")
             return {
                 "proceed": False,
-                "message": "⚠️ Sorry, something went wrong. Please try again.",
-                "mode": "error"
+                "message": "Something went wrong while analyzing your input."
             }
-
-        finally:
-            self.processing = False
-
-    def handle_follow_up(self, user_query):
-        if not self.selected_model_info:
-            return "No model is currently selected. Please ask for a model recommendation first."
-
-        model_json = json.dumps(self.selected_model_info, indent=2)
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    f"You are an expert assistant explaining the chosen AI model below to the user. Use natural, friendly, helpful language.\n"
-                    f"Model Details:\n{model_json}\n\n"
-                    f"Give accurate, useful details about pricing, performance, speed, or region. If anything is missing, say 'not specified' but focus on what you do know."
-                )
-            },
-            {"role": "user", "content": user_query}
-        ]
-
-        try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                temperature=0.4,
-                max_tokens=300
-            )
-            return response.choices[0].message.content.strip()
-
-        except Exception as e:
-            logger.error(f"Follow-up GPT error: {e}")
-            return "⚠️ Sorry, I couldn't answer that. Please try asking again."
