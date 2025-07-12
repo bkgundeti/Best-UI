@@ -127,7 +127,7 @@ const ChatWindow = ({ user, setUser }) => {
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-[#0f0f0f] via-[#1a0033] to-[#2a0055] text-white overflow-hidden">
-
+      
       {/* Watermark */}
       {chats.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
@@ -137,8 +137,8 @@ const ChatWindow = ({ user, setUser }) => {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 bg-gray-900">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-10 flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 bg-gray-900">
         <button onClick={handleClear} className="hover:underline">Clear Chat</button>
         <button onClick={handleLogout} className="hover:underline">Logout</button>
       </div>
@@ -153,13 +153,13 @@ const ChatWindow = ({ user, setUser }) => {
           return (
             <div key={index} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] px-4 py-2 rounded-xl text-sm shadow-md overflow-y-auto max-h-[300px] ${
+                className={`max-w-[85%] px-4 py-2 rounded-xl text-sm shadow-md whitespace-pre-wrap break-words ${
                   isUser
                     ? "bg-purple-600 text-white rounded-br-sm"
                     : isAgent
                     ? "bg-gray-800 text-white rounded-bl-sm"
                     : "text-gray-400 italic"
-                } whitespace-pre-wrap break-words`}
+                }`}
               >
                 {chat.message}
               </div>
