@@ -86,7 +86,7 @@ def login():
 
     return jsonify({"success": True, "message": "Login successful"}), 200
 
-# ✅ Chat API — intelligent agent chaining
+# ✅ Chat API 
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
@@ -116,7 +116,8 @@ def chat():
         # Step 2: Use Chat Agent for message analysis
         chat_response = chat_agent.process_web_input(message)
 
-        if not chat_response or not chat_response.get("proceed"):
+        # Step 3: If ChatAgent is confident and provides useful response
+        if not chat_response or not chat_response.get("proceed") or chat_response.get("mode") not in ["new_request", "alternative"]:
             response = chat_response.get("message", "Sorry, I couldn't understand your input.")
             chats_col.insert_one({
                 "username": username,
@@ -126,63 +127,50 @@ def chat():
             })
             return jsonify({"response": response}), 200
 
-        # Step 3: If task type is model-related, run Recommender Agent
-        if chat_response["mode"] in ["new_request", "alternative"]:
-            analyzed_input = chat_response["message"]
-            recommender = RecommenderAgent(gpt_client)
-            recommended = recommender.recommend_models(
-                analyzed_input,
-                alternative_mode=(chat_response["mode"] == "alternative"),
-                exclude_model_name=chat_agent.selected_model_info.get("Model_name") if chat_agent.selected_model_info else None
-            )
+        # Step 4: Use RecommenderAgent for model suggestions
+        analyzed_input = chat_response["message"]
+        recommender = RecommenderAgent(gpt_client)
+        recommended = recommender.recommend_models(
+            analyzed_input,
+            alternative_mode=(chat_response["mode"] == "alternative"),
+            exclude_model_name=chat_agent.selected_model_info.get("Model_name") if chat_agent.selected_model_info else None
+        )
 
-            if not recommended or not isinstance(recommended, list):
-                return jsonify({"response": "Failed to get model recommendations."}), 500
+        if not recommended or not isinstance(recommended, list):
+            return jsonify({"response": "Failed to get model recommendations."}), 500
 
-            # Step 4: Get Pricing
-            pricing_agent = PricingAgent(
-                assistant_id,
-                os.getenv("AZURE_OPENAI_KEY"),
-                os.getenv("AZURE_OPENAI_ENDPOINT")
-            )
-            pricing_table = pricing_agent.analyze_pricing(recommended)
+        # Step 5: Pricing Analysis
+        pricing_agent = PricingAgent(
+            assistant_id,
+            os.getenv("AZURE_OPENAI_KEY"),
+            os.getenv("AZURE_OPENAI_ENDPOINT")
+        )
+        pricing_table = pricing_agent.analyze_pricing(recommended)
 
-            # Step 5: Generate Final Report
-            reporter = ReportAgent(gpt_client)
-            final_output = reporter.generate_report(analyzed_input, recommended, pricing_table)
+        # Step 6: Report Generation
+        reporter = ReportAgent(gpt_client)
+        final_output = reporter.generate_report(analyzed_input, recommended, pricing_table)
 
-            # Step 6: Save selected model (for follow-up support)
-            try:
-                model_name_match = re.search(r"Model Name\s*:\s*(.+)", final_output)
-                if model_name_match:
-                    selected_name = model_name_match.group(1).strip()
-                    all_models = recommender._fetch_model_dataset()
-                    matched = next((m for m in all_models if m.get("Model_name") == selected_name), None)
-                    if matched:
-                        chat_agent.set_selected_model(matched)
-            except Exception as err:
-                print("⚠️ Model extraction failed:", err)
+        # Step 7: Save selected model for follow-ups
+        try:
+            model_name_match = re.search(r"Model Name\s*:\s*(.+)", final_output)
+            if model_name_match:
+                selected_name = model_name_match.group(1).strip()
+                all_models = recommender._fetch_model_dataset()
+                matched = next((m for m in all_models if m.get("Model_name") == selected_name), None)
+                if matched:
+                    chat_agent.set_selected_model(matched)
+        except Exception as err:
+            print("⚠️ Model extraction failed:", err)
 
-            # Step 7: Save chat history
-            chats_col.insert_one({
-                "username": username,
-                "message": message,
-                "response": final_output,
-                "timestamp": datetime.utcnow()
-            })
+        chats_col.insert_one({
+            "username": username,
+            "message": message,
+            "response": final_output,
+            "timestamp": datetime.utcnow()
+        })
 
-            return jsonify({"response": final_output}), 200
-
-        else:
-            # Step 3 (if not model request): Just return ChatAgent response
-            response = chat_response["message"]
-            chats_col.insert_one({
-                "username": username,
-                "message": message,
-                "response": response,
-                "timestamp": datetime.utcnow()
-            })
-            return jsonify({"response": response}), 200
+        return jsonify({"response": final_output}), 200
 
     finally:
         user_processing_lock[username] = False

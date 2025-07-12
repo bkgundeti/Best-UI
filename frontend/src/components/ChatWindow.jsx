@@ -8,6 +8,7 @@ const ChatWindow = ({ user, setUser }) => {
   const [loading, setLoading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const scrollRef = useRef(null);
+  const textareaRef = useRef(null);
   const initialized = useRef(false);
   const isMobile = /Mobi|Android/i.test(navigator.userAgent);
 
@@ -15,9 +16,7 @@ const ChatWindow = ({ user, setUser }) => {
     if (initialized.current) return;
 
     const storedUser = localStorage.getItem("user");
-    if (!user && storedUser) {
-      setUser(storedUser);
-    }
+    if (!user && storedUser) setUser(storedUser);
 
     const fetchHistory = async () => {
       try {
@@ -28,11 +27,21 @@ const ChatWindow = ({ user, setUser }) => {
       }
     };
 
-    if (storedUser) {
-      fetchHistory();
-    }
+    if (storedUser) fetchHistory();
 
     initialized.current = true;
+  }, []);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chats]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const handleSend = async () => {
@@ -48,7 +57,6 @@ const ChatWindow = ({ user, setUser }) => {
     setUploadedFile(null);
     setLoading(true);
 
-    // Add analyzing message
     setChats((prev) => [...prev, { username: "System", message: "Analyzing..." }]);
 
     try {
@@ -67,9 +75,7 @@ const ChatWindow = ({ user, setUser }) => {
 
       setChats((prev) => {
         const updated = [...prev];
-        const idx = updated.findIndex(
-          (chat) => chat.username === "System" && chat.message === "Analyzing..."
-        );
+        const idx = updated.findIndex(chat => chat.username === "System" && chat.message === "Analyzing...");
         if (idx !== -1) {
           updated[idx] = { username: "Agent", message: formattedResponse };
         } else {
@@ -111,23 +117,18 @@ const ChatWindow = ({ user, setUser }) => {
     }
   };
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chats]);
-
-  // Mobile keyboard adjustment
-  useEffect(() => {
-    const handleResize = () => {
-      scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const handleTextareaInput = () => {
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 150) + "px";
+    }
+  };
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-[#0f0f0f] via-[#1a0033] to-[#2a0055] text-white relative overflow-hidden">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-[#0f0f0f] via-[#1a0033] to-[#2a0055] text-white overflow-hidden">
 
-      {/* Watermark if empty */}
+      {/* Watermark */}
       {chats.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
           <h1 className="text-4xl md:text-5xl font-bold text-white opacity-100 text-center drop-shadow-lg">
@@ -137,12 +138,12 @@ const ChatWindow = ({ user, setUser }) => {
       )}
 
       {/* Header */}
-      <div className="flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 bg-gray-900 sticky top-0 z-10">
+      <div className="flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 bg-gray-900">
         <button onClick={handleClear} className="hover:underline">Clear Chat</button>
         <button onClick={handleLogout} className="hover:underline">Logout</button>
       </div>
 
-      {/* Chat Area */}
+      {/* Chat Scrollable Area */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {chats.map((chat, index) => {
           const isUser = chat.username === user;
@@ -169,7 +170,7 @@ const ChatWindow = ({ user, setUser }) => {
       </div>
 
       {/* Footer */}
-      <div className="p-3 border-t border-gray-700 bg-gray-900 sticky bottom-0 z-10">
+      <div className="p-3 border-t border-gray-700 bg-gray-900">
         {uploadedFile && (
           <div className="text-sm text-green-400 mb-1">
             📁 Selected: {uploadedFile.name}
@@ -187,12 +188,16 @@ const ChatWindow = ({ user, setUser }) => {
           </label>
 
           <textarea
+            ref={textareaRef}
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              handleTextareaInput();
+            }}
             onKeyDown={handleKeyPress}
             placeholder={loading ? "Analyzing..." : "Type your message..."}
             rows={1}
-            className="flex-1 px-3 py-2 rounded-xl bg-gray-800 text-white resize-none overflow-hidden max-h-[150px] focus:outline-none"
+            className="flex-1 px-3 py-2 rounded-xl bg-gray-800 text-white resize-none overflow-auto max-h-[150px] focus:outline-none"
             disabled={loading}
           />
 
