@@ -34,48 +34,61 @@ class RecommenderAgent:
             logger.error(f"❌ MongoDB fetch error: {e}")
             return []
 
+    def _is_model_request(self, analyzed_input: str) -> bool:
+        """Check if input is relevant for model recommendation."""
+        keywords = [
+            "generate", "summarize", "translate", "image", "audio",
+            "speech", "text", "content", "model", "ai", "voice", "task", "recommend"
+        ]
+        return any(k in analyzed_input.lower() for k in keywords)
+
     def recommend_models(self, analyzed_input: str, alternative_mode=False, exclude_model_name=None):
+        # 🧠 Step 1: Input Check
+        if not self._is_model_request(analyzed_input):
+            logger.info("🛑 Input does not request model recommendation. Skipping suggestion.")
+            return [{"message": "No model recommendation needed based on your input."}]
+
+        # 🧠 Step 2: Fetch Dataset
         dataset = self._fetch_model_dataset()
         if not dataset:
             logger.warning("⚠️ Empty dataset. Cannot proceed.")
-            return []
+            return [{"message": "Model database is empty. Please try again later."}]
 
-        # Optional filtering for alternatives
+        # 🧠 Step 3: Optional Alternative Filtering
         if alternative_mode and exclude_model_name:
             dataset = [model for model in dataset if model.get("Model_Name") != exclude_model_name]
-            logger.info(f"⚙️ Filtered dataset to exclude previously suggested model: {exclude_model_name}")
+            logger.info(f"⚙️ Filtered out model: {exclude_model_name}")
 
+        # 🧠 Step 4: Prompt Construction
         system_prompt = (
             "You are an expert AI assistant trained to recommend the best AI models based on user needs.\n"
-            "- You will receive a list of models (JSON) and a user requirement.\n"
-            "- Recommend ONLY 3 to 5 models.\n"
-            "- Avoid repeating the same model in multiple runs.\n"
-            "- Output should be valid JSON array: each item must contain `Model Name` and `Reason`.\n"
-            "- Avoid suggesting image models if user only asked for text tasks.\n"
-            "- Focus on text generation/summarization models if required.\n\n"
+            "- You will receive a JSON list of models and a user requirement.\n"
+            "- Recommend ONLY 3 to 5 relevant models based on the task.\n"
+            "- Output only a valid JSON list: each item must have 'Model Name' and 'Reason'.\n"
+            "- Do not include irrelevant models.\n"
+            "- Avoid recommending the same model multiple times across different requests.\n"
+            "- Make sure the response is always valid JSON. Do not include explanations outside the JSON.\n"
         )
 
-        user_prompt = f"""
-User Requirement:
-\"\"\"{analyzed_input}\"\"\"
+        user_prompt = (
+            f"User Requirement:\n"
+            f"{analyzed_input.strip()}\n\n"
+            f"Model Dataset:\n"
+            f"{json.dumps(dataset)}\n\n"
+            "Instructions:\n"
+            "- Match user task(s) with model capabilities.\n"
+            "- Prioritize accuracy, budget, speed, and task-fit.\n"
+            "- Output format:\n"
+            "[\n"
+            "  {\n"
+            "    \"Model Name\": \"<model name>\",\n"
+            "    \"Reason\": \"<short reason for this task>\"\n"
+            "  },\n"
+            "  ... (up to 5 models)\n"
+            "]"
+        )
 
-Model Dataset (JSON):
-{json.dumps(dataset)}
-
-Instructions:
-- Match model capabilities with the user's task.
-- Prioritize accuracy, budget, speed, and purpose.
-- Avoid models irrelevant to the use-case.
-- Output Format (must be JSON list):
-[
-  {{
-    "Model Name": "<name>",
-    "Reason": "<1-line reason>"
-  }},
-  ...
-]
-"""
-
+        # 🧠 Step 5: GPT Call
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -85,20 +98,22 @@ Instructions:
                 ],
                 temperature=0.7
             )
+
             result = response.choices[0].message.content.strip()
             logger.info("✅ Raw GPT Recommendation:\n" + result)
 
-            # Try to parse as JSON list
             try:
                 recommendations = json.loads(result)
                 if isinstance(recommendations, list):
+                    logger.info("✅ Parsed GPT output successfully.")
                     return recommendations
                 else:
-                    raise ValueError("GPT response is not a list")
+                    logger.warning("⚠️ GPT output is not a list.")
+                    return [{"message": "Unexpected format from GPT. Please retry."}]
             except json.JSONDecodeError as decode_err:
-                logger.warning(f"⚠️ Failed to parse GPT response as JSON: {decode_err}")
+                logger.warning(f"⚠️ Failed to parse GPT response: {decode_err}")
                 return [{"message": "Failed to parse model recommendations."}]
 
         except Exception as e:
-            logger.error(f"❌ GPT model recommendation error: {e}")
-            return [{"message": "GPT model recommendation failed."}]
+            logger.error(f"❌ GPT error during model recommendation: {e}")
+            return [{"message": "GPT model recommendation failed. Please try again later."}]

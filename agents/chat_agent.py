@@ -16,12 +16,12 @@ class ChatAgent:
         self.selected_model_info = None
         self.request_alternative = False
         self.processing = False
-        self.last_task_type = None  # Track last task like 'image_generation', 'text_generation', etc.
+        self.last_task_type = None
+        self.chat_history = []
 
     def set_selected_model(self, model_dict):
         self.selected_model_info = model_dict
 
-    # ✅ File reading methods
     def _read_text_file(self, file_path):
         try:
             with open(file_path, 'r') as f:
@@ -115,6 +115,11 @@ class ChatAgent:
                 return task
         return "general"
 
+    def _append_to_history(self, role, content):
+        self.chat_history.append({"role": role, "content": content})
+        if len(self.chat_history) > 8:
+            self.chat_history.pop(0)
+
     def process_web_input(self, user_input):
         if self.processing:
             return {
@@ -159,6 +164,8 @@ class ChatAgent:
             if any(keyword in lowered for keyword in ["price", "speed", "developer", "cloud", "accuracy", "region", "provider"]):
                 if self.selected_model_info:
                     answer = self.handle_follow_up(user_input)
+                    self._append_to_history("user", user_input)
+                    self._append_to_history("assistant", answer)
                     return {
                         "proceed": False,
                         "message": answer,
@@ -172,20 +179,27 @@ class ChatAgent:
                         "You are an expert AI assistant that helps users decide which AI model to use for tasks like text summarization, image generation, speech-to-text, audio generation, etc. "
                         "If the input seems general (e.g. hi, hello), greet back. If the task is unclear, ask them to rephrase."
                     )
-                },
-                {"role": "user", "content": user_input.strip()}
+                }
             ]
+
+            messages.extend(self.chat_history[-6:])
+            messages.append({"role": "user", "content": user_input.strip()})
 
             response = self.client.chat.completions.create(
                 model="gpt-4o",
-                messages=messages
+                messages=messages,
+                temperature=0.4,
+                max_tokens=300
             )
 
             result = response.choices[0].message.content.strip()
             logger.info("Web input analysis result:\n" + result)
 
-            if any(keyword in result.lower() for keyword in ["model", "ai", "summarization", "translation", "audio", "image", "generation", "recommendation"]):
-                self.last_task_type = self._extract_task_type(user_input)
+            self.last_task_type = self._extract_task_type(user_input)
+            self._append_to_history("user", user_input.strip())
+            self._append_to_history("assistant", result)
+
+            if any(keyword in result.lower() for keyword in ["recommend", "model", "ai", "task", "image", "text", "audio"]):
                 return {
                     "proceed": True,
                     "message": result,
@@ -195,7 +209,7 @@ class ChatAgent:
                 return {
                     "proceed": False,
                     "message": result,
-                    "mode": "irrelevant"
+                    "mode": "general"
                 }
 
         except Exception as e:
@@ -230,7 +244,9 @@ class ChatAgent:
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4o",
-                messages=messages
+                messages=messages,
+                temperature=0.4,
+                max_tokens=300
             )
             return response.choices[0].message.content.strip()
 

@@ -47,6 +47,8 @@ const ChatWindow = ({ user, setUser }) => {
     setMessage("");
     setUploadedFile(null);
     setLoading(true);
+
+    // Add analyzing message
     setChats((prev) => [...prev, { username: "System", message: "Analyzing..." }]);
 
     try {
@@ -61,19 +63,23 @@ const ChatWindow = ({ user, setUser }) => {
         message: textMsg || fileMsg,
       });
 
-      const formattedResponse = res.data.response.trim();
+      const formattedResponse = res.data?.response?.trim() || "⚠️ No proper response received.";
 
       setChats((prev) => {
         const updated = [...prev];
         const idx = updated.findIndex(
           (chat) => chat.username === "System" && chat.message === "Analyzing..."
         );
-        if (idx !== -1) updated[idx] = { username: "Agent", message: formattedResponse };
-        else updated.push({ username: "Agent", message: formattedResponse });
+        if (idx !== -1) {
+          updated[idx] = { username: "Agent", message: formattedResponse };
+        } else {
+          updated.push({ username: "Agent", message: formattedResponse });
+        }
         return updated;
       });
     } catch (err) {
       console.error("Send failed:", err);
+      setChats((prev) => [...prev, { username: "Agent", message: "⚠️ Something went wrong." }]);
     }
 
     setLoading(false);
@@ -84,7 +90,6 @@ const ChatWindow = ({ user, setUser }) => {
       e.preventDefault();
       handleSend();
     }
-    // On mobile: default behavior (enter = new line)
   };
 
   const handleUpload = (file) => {
@@ -108,49 +113,52 @@ const ChatWindow = ({ user, setUser }) => {
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chats, loading]);
+  }, [chats]);
+
+  // Mobile keyboard adjustment
+  useEffect(() => {
+    const handleResize = () => {
+      scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-black via-[#111111] to-[#1a1a1a] text-white">
-      {/* ✅ Watermark */}
+    <div className="flex flex-col h-screen bg-gradient-to-br from-[#0f0f0f] via-[#1a0033] to-[#2a0055] text-white relative overflow-hidden">
+
+      {/* Watermark if empty */}
       {chats.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-          <h1 className="text-4xl md:text-5xl font-bold text-gray-200 opacity-30 drop-shadow text-center">
+          <h1 className="text-4xl md:text-5xl font-bold text-white opacity-100 text-center drop-shadow-lg">
             Model Selector AI Agent
           </h1>
         </div>
       )}
 
-      {/* ✅ Header */}
+      {/* Header */}
       <div className="flex justify-between items-center px-4 py-2 text-sm border-b border-gray-700 bg-gray-900 sticky top-0 z-10">
-        <button onClick={handleClear} className="hover:underline">
-          Clear Chat
-        </button>
-        <button onClick={handleLogout} className="hover:underline">
-          Logout
-        </button>
+        <button onClick={handleClear} className="hover:underline">Clear Chat</button>
+        <button onClick={handleLogout} className="hover:underline">Logout</button>
       </div>
 
-      {/* ✅ Chat Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2">
+      {/* Chat Area */}
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {chats.map((chat, index) => {
           const isUser = chat.username === user;
           const isAgent = chat.username === "Agent";
           const isSystem = chat.username === "System";
 
           return (
-            <div
-              key={index}
-              className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-            >
+            <div key={index} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] px-4 py-2 rounded-xl whitespace-pre-wrap break-words ${
+                className={`max-w-[85%] px-4 py-2 rounded-xl text-sm shadow-md overflow-y-auto max-h-[300px] ${
                   isUser
-                    ? "bg-purple-600 rounded-br-sm"
+                    ? "bg-purple-600 text-white rounded-br-sm"
                     : isAgent
-                    ? "bg-gray-700 rounded-bl-sm"
-                    : "text-sm italic text-gray-400"
-                }`}
+                    ? "bg-gray-800 text-white rounded-bl-sm"
+                    : "text-gray-400 italic"
+                } whitespace-pre-wrap break-words`}
               >
                 {chat.message}
               </div>
@@ -160,7 +168,7 @@ const ChatWindow = ({ user, setUser }) => {
         <div ref={scrollRef} />
       </div>
 
-      {/* ✅ Footer */}
+      {/* Footer */}
       <div className="p-3 border-t border-gray-700 bg-gray-900 sticky bottom-0 z-10">
         {uploadedFile && (
           <div className="text-sm text-green-400 mb-1">

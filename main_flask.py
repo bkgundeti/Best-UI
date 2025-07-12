@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from openai import AzureOpenAI
 from werkzeug.utils import secure_filename
 from datetime import datetime
+import re
 
 from agents.chat_agent import ChatAgent
 from agents.requir_recommender_agent import RecommenderAgent
@@ -18,14 +19,14 @@ load_dotenv()
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 CORS(app)
 
-# ✅ MongoDB Configuration
+# ✅ MongoDB Setup
 mongo_uri = os.getenv("MONGO_URI")
 mongo_client = MongoClient(mongo_uri)
 user_db = mongo_client[os.getenv("USER_DB_NAME")]
 users_col = user_db[os.getenv("USERS_COLLECTION_NAME")]
 chats_col = user_db[os.getenv("CHATS_COLLECTION_NAME")]
 
-# ✅ Azure OpenAI Setup
+# ✅ Azure OpenAI Client Setup
 gpt_client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_KEY"),
     api_version="2024-05-01-preview",
@@ -34,10 +35,10 @@ gpt_client = AzureOpenAI(
 )
 assistant_id = os.getenv("AZURE_OPENAI_ASSISTANT_ID")
 
-# ✅ Initialize ChatAgent globally
+# ✅ Global Agent
 chat_agent = ChatAgent(gpt_client)
 
-# ✅ Track users currently processing
+# ✅ Lock per user to prevent multiple parallel requests
 user_processing_lock = {}
 
 # ✅ Sign Up API
@@ -85,7 +86,7 @@ def login():
 
     return jsonify({"success": True, "message": "Login successful"}), 200
 
-# ✅ Chat API
+# ✅ Chat API — intelligent agent chaining
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
@@ -95,14 +96,13 @@ def chat():
     if not username or not message:
         return jsonify({"response": "Missing username or message"}), 400
 
-    # ❗ Prevent multiple requests from same user
     if user_processing_lock.get(username, False):
         return jsonify({"response": "Please wait, your previous request is still being processed."}), 429
 
-    user_processing_lock[username] = True  # 🔒 Lock user
+    user_processing_lock[username] = True
 
     try:
-        # Step 1: If a model is already selected, handle follow-up
+        # Step 1: Handle follow-up questions if model is selected
         if chat_agent.selected_model_info:
             followup_response = chat_agent.handle_follow_up(message)
             chats_col.insert_one({
@@ -113,65 +113,81 @@ def chat():
             })
             return jsonify({"response": followup_response}), 200
 
-        # Step 2: Analyze input using ChatAgent
+        # Step 2: Use Chat Agent for message analysis
         chat_response = chat_agent.process_web_input(message)
 
-        # ✅ If user just said "Hi" or other polite message (not AI task)
         if not chat_response or not chat_response.get("proceed"):
-            response = chat_response.get("message", "Could not process your input.")
-
-            # Save polite or invalid message to history too
+            response = chat_response.get("message", "Sorry, I couldn't understand your input.")
             chats_col.insert_one({
                 "username": username,
                 "message": message,
                 "response": response,
                 "timestamp": datetime.utcnow()
             })
-
             return jsonify({"response": response}), 200
 
-        # Step 3: Proceed with model recommendation
-        analyzed_input = chat_response["message"]
-        recommender = RecommenderAgent(gpt_client)
-        recommended = recommender.recommend_models(analyzed_input)
+        # Step 3: If task type is model-related, run Recommender Agent
+        if chat_response["mode"] in ["new_request", "alternative"]:
+            analyzed_input = chat_response["message"]
+            recommender = RecommenderAgent(gpt_client)
+            recommended = recommender.recommend_models(
+                analyzed_input,
+                alternative_mode=(chat_response["mode"] == "alternative"),
+                exclude_model_name=chat_agent.selected_model_info.get("Model_name") if chat_agent.selected_model_info else None
+            )
 
-        pricing = PricingAgent(
-            assistant_id,
-            os.getenv("AZURE_OPENAI_KEY"),
-            os.getenv("AZURE_OPENAI_ENDPOINT")
-        )
-        pricing_table = pricing.analyze_pricing(recommended)
+            if not recommended or not isinstance(recommended, list):
+                return jsonify({"response": "Failed to get model recommendations."}), 500
 
-        reporter = ReportAgent(gpt_client)
-        response = reporter.generate_report(analyzed_input, recommended, pricing_table)
+            # Step 4: Get Pricing
+            pricing_agent = PricingAgent(
+                assistant_id,
+                os.getenv("AZURE_OPENAI_KEY"),
+                os.getenv("AZURE_OPENAI_ENDPOINT")
+            )
+            pricing_table = pricing_agent.analyze_pricing(recommended)
 
-        # Step 4: Save selected model for future follow-ups
-        try:
-            import re
-            model_name_match = re.search(r"Model Name\s*:\s*(.+)", response)
-            if model_name_match:
-                final_model = model_name_match.group(1).strip()
-                dataset = recommender._fetch_model_dataset()
-                matched_model = next((m for m in dataset if m.get("Model_name") == final_model), None)
-                if matched_model:
-                    chat_agent.set_selected_model(matched_model)
-        except Exception as e:
-            print("Error storing selected model info:", e)
+            # Step 5: Generate Final Report
+            reporter = ReportAgent(gpt_client)
+            final_output = reporter.generate_report(analyzed_input, recommended, pricing_table)
 
-        # Step 5: Save chat to DB
-        chats_col.insert_one({
-            "username": username,
-            "message": message,
-            "response": response,
-            "timestamp": datetime.utcnow()
-        })
+            # Step 6: Save selected model (for follow-up support)
+            try:
+                model_name_match = re.search(r"Model Name\s*:\s*(.+)", final_output)
+                if model_name_match:
+                    selected_name = model_name_match.group(1).strip()
+                    all_models = recommender._fetch_model_dataset()
+                    matched = next((m for m in all_models if m.get("Model_name") == selected_name), None)
+                    if matched:
+                        chat_agent.set_selected_model(matched)
+            except Exception as err:
+                print("⚠️ Model extraction failed:", err)
 
-        return jsonify({"response": response}), 200
+            # Step 7: Save chat history
+            chats_col.insert_one({
+                "username": username,
+                "message": message,
+                "response": final_output,
+                "timestamp": datetime.utcnow()
+            })
+
+            return jsonify({"response": final_output}), 200
+
+        else:
+            # Step 3 (if not model request): Just return ChatAgent response
+            response = chat_response["message"]
+            chats_col.insert_one({
+                "username": username,
+                "message": message,
+                "response": response,
+                "timestamp": datetime.utcnow()
+            })
+            return jsonify({"response": response}), 200
 
     finally:
-        user_processing_lock[username] = False  # 🔓 Unlock user after processing
+        user_processing_lock[username] = False
 
-# ✅ Chat History API
+# ✅ Chat History
 @app.route("/history/<username>", methods=["GET"])
 def history(username):
     if not username:
@@ -183,7 +199,7 @@ def history(username):
         for i, c in enumerate(chats)
     ])
 
-# ✅ File Upload API
+# ✅ File Upload
 @app.route("/upload", methods=["POST"])
 def upload():
     file = request.files.get("file")
@@ -198,7 +214,7 @@ def upload():
 
     return jsonify({"status": "success", "message": f"{filename} uploaded successfully"}), 200
 
-# ✅ Clear Chat API
+# ✅ Clear Chat + Reset
 @app.route("/clear_chat", methods=["POST"])
 def clear_chat():
     data = request.get_json()
@@ -211,15 +227,15 @@ def clear_chat():
     chat_agent.selected_model_info = None
     return jsonify({"status": "cleared"}), 200
 
-# ✅ Serve React Frontend
+# ✅ React Frontend Support
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
-    full_path = os.path.join(app.static_folder, path)
-    if path and os.path.exists(full_path):
+    file_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(file_path):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, "index.html")
 
-# ✅ Run Flask Server
+# ✅ Start Server
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
